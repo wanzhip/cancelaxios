@@ -1,0 +1,103 @@
+
+import axios from 'axios';
+import env from './env';
+// axios.defaults.baseURL = 'http://api.jinke.shenbian100.com';
+import store from "../store/index";
+import { Message } from 'element-ui';
+import router from '../router/index';
+import Qs from "qs";
+
+if (env == 'development') {
+    axios.defaults.baseURL = 'https://api.jinke.shenbian100.com';
+    // axios.defaults.baseURL = 'https://test2.jinkex.com';
+} else {
+    axios.defaults.baseURL = 'https://api.jinkex.com';
+}
+
+function generateReqKey(config) {
+    const { method, url, params, data } = config;
+    console.log(method, url, Qs, Qs.stringify(params), Qs.stringify(data), '此时的数据');
+    return [method, url, Qs.stringify(params), Qs.stringify(data)].join("&");
+}
+
+const pendingRequest = new Map();
+function addPendingRequest(config) {
+    console.log(config, '添加请求的config');
+    const requestKey = generateReqKey(config);
+    console.log(requestKey,'添加请求的requestKey');
+    config.cancelToken = config.cancelToken || new axios.CancelToken((cancel) => {
+        if (!pendingRequest.has(requestKey)) {
+            pendingRequest.set(requestKey, cancel);
+        }
+    });
+}
+
+function removePendingRequest(config) {
+    console.log(config, '取消请求的config');
+    // alert('取消')
+    const requestKey = generateReqKey(config);
+    console.log(requestKey,'取消请求的requestKey');
+    if (pendingRequest.has(requestKey)) {
+        const cancelToken = pendingRequest.get(requestKey);
+        cancelToken(requestKey);
+        console.log('存在删除');
+        pendingRequest.delete(requestKey);
+    }
+}
+
+
+axios.defaults.withCredentials = true;
+//请求拦截器
+axios.interceptors.request.use(
+    config => {
+        removePendingRequest(config);//检查是否存在重复请求， 若存在则取消已发的请求
+        addPendingRequest(config);//把当前请求信息添加到pendingRequest对象中
+        const SchoolHost = store.state.SchoolHost;
+        SchoolHost && (config.headers.Authorization = SchoolHost);
+        // console.log('配置成功')
+        // console.log(config)
+        return config;
+    },
+    error => {
+        console.log('配置失败')
+        return Promise.reject(error);
+    })
+
+axios.interceptors.response.use(
+    response => {
+        removePendingRequest(response.config);//从pendingRequest对象中移除请求
+        console.log('移除相应的removePendingRequest');
+        if (response.status === 200) {
+            console.log('2')
+            console.log(response.data.code);
+            if (response.data.code === 403) {
+                console.log(axios);
+                Message.error('登录过期，请重新登录')
+                sessionStorage.clear();
+                console.log(window.location.pathname);
+                if (window.location.pathname != '/login') {
+                    router.push({
+                        path: '/login',
+                    });
+                }
+            }
+            return Promise.resolve(response);
+        } else {
+            console.log(response,'++++++++++++++++++++++++');
+            // return Promise.reject({})
+            // alert('执行')
+            // removePendingRequest(error.config || {});//从pendingRequest对象中移除请求
+            // if (axios.isCancel(error)) {
+            //     console.log("已取消的重复请求：" + error.message);
+            // }
+            // return Promise.reject(response);
+        }
+    }, error => {
+        // alert('错误')
+        // Message.error('服务器错误')
+        // return Promise.reject(error)
+    }
+);
+
+
+export default axios;
